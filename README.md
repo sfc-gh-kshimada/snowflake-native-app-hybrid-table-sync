@@ -33,7 +33,7 @@
 | `01_provider_setup.sql` | Provider | サンプルデータ作成、Application Package と共有コンテンツ設定 |
 | `02_provider_build_and_test.sql` | Provider | ファイルアップロード、バージョン登録、**Provider 内でのテストインストール** |
 | `03_provider_listing.sql` | Provider | リリースディレクティブ設定、**Private Listing** 公開 |
-| `04_consumer_install.sql` | Consumer | リスティングからインストール、権限付与、init |
+| `04_consumer_install.sql` | Consumer | リスティングからインストール、権限付与、init（Snowsight でも実施可） |
 | `app/manifest.yml` / `app/setup.sql` | - | アプリ本体（Hybrid table、同期、API、Agent、Streamlit） |
 | `app/streamlit/app.py` | - | Streamlit UI |
 
@@ -42,8 +42,21 @@
 1. Provider: `01_provider_setup.sql`
 2. Provider: `02_provider_build_and_test.sql`（リポジトリのルートで `snow sql -c <provider> -f 02_provider_build_and_test.sql`）
 3. Provider: `03_provider_listing.sql` の `<CONSUMER_ORG>.<CONSUMER_ACCOUNT>` を置き換えて実行
-4. Consumer: `04_consumer_install.sql` の `<LISTING_GLOBAL_NAME>` を置き換えて実行
-5. Consumer: Snowsight の *Catalog » Apps* からアプリを開き、Streamlit を起動
+4. Consumer: `04_consumer_install.sql` の `<LISTING_GLOBAL_NAME>` を置き換えて実行（**Snowsight からも実施可能**。下記参照）
+5. Consumer: Snowsight の *Apps* からアプリを開き、Streamlit を起動
+
+### Consumer 側を Snowsight で実施する場合
+
+`04_consumer_install.sql` と同じ内容は、Consumer の Snowsight からも実施できます（メニュー名はリリースにより異なる場合があります）。
+
+| # | Snowsight での操作 | SQL で行う場合 |
+|---|---|---|
+| 1 | Private Listing（自アカウント向けに共有されたリスティング）を開き **Get** → アプリ名・ウェアハウスを指定してインストール | `CREATE APPLICATION ... FROM LISTING` |
+| 2 | アプリのページで、manifest が要求する権限（EXECUTE TASK / EXECUTE MANAGED TASK）を **Grant** | `GRANT EXECUTE TASK, EXECUTE MANAGED TASK ON ACCOUNT TO APPLICATION ...` |
+| 3 | ワークシートでウェアハウスの USAGE を付与し、`init` を実行 | `GRANT USAGE ON WAREHOUSE ...` / `CALL <app>.api.init('<wh>')` |
+| 4 | *Apps* からアプリを開き Streamlit (`DEMO_UI`) を起動 | - |
+
+※ 手順 3 のウェアハウス付与と `init` は GUI に対応するボタンを用意していないため、ワークシートで実行してください。
 
 ## 設計ポイント / 検証で分かった制約
 
