@@ -1,0 +1,14 @@
+manifest_version: 1
+version:
+  name: V1
+  label: "Demo Hybrid Lookup v1"
+artifacts:
+  setup_script: setup.sql
+  readme: README.md
+configuration:
+  log_level: INFO
+privileges:
+  - EXECUTE TASK:
+      description: "差分同期タスクを実行するため"
+  - EXECUTE MANAGED TASK:
+      description: "サーバーレスタスクで同期するため"

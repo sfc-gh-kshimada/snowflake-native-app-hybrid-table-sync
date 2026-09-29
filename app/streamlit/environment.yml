@@ -1,0 +1,5 @@
+name: demo_ht_ui
+channels:
+  - snowflake
+dependencies:
+  - pandas
