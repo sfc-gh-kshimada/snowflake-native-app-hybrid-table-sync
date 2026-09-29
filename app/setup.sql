@@ -108,28 +108,20 @@ GRANT SELECT ON VIEW api.reservation_v TO APPLICATION ROLE app_user;
 CREATE OR REPLACE VIEW api.sync_status_v AS SELECT tbl, last_ts, synced_at FROM core.sync_state;
 GRANT SELECT ON VIEW api.sync_status_v TO APPLICATION ROLE app_user;
 
--- agent lives in a non-versioned schema (created at init because tool needs consumer warehouse)
+-- ---------------------------------------------------------------------------
+-- Cortex Agent (app-created). Runs under restricted caller's rights (RCR).
+--  * tool = app-owned procedure (EXECUTE AS OWNER) -> implicit caller grant, reads app-owned hybrid table
+--  * warehouse name is fixed: consumer creates HT_APP_WH and grants
+--      GRANT CALLER USAGE ON WAREHOUSE HT_APP_WH TO APPLICATION <app>;   (CoWork / REST / DATA_AGENT_RUN by users)
+--      GRANT USAGE ON WAREHOUSE HT_APP_WH TO APPLICATION <app>;          (Streamlit calls agent with app identity)
+--  * appears in Snowflake CoWork for roles granted APPLICATION ROLE app_user
+-- ---------------------------------------------------------------------------
 CREATE SCHEMA IF NOT EXISTS agent;
 GRANT USAGE ON SCHEMA agent TO APPLICATION ROLE app_user;
 
--- init: initial load + task + agent. consumer must: GRANT USAGE ON WAREHOUSE <wh> TO APPLICATION <app>
-CREATE OR REPLACE PROCEDURE api.init(wh VARCHAR)
-RETURNS VARCHAR
-LANGUAGE SQL
-EXECUTE AS OWNER
-AS
-$$
-DECLARE r VARCHAR; app VARCHAR; spec VARCHAR;
-BEGIN
-  CALL api.sync_reservation() INTO :r;
-  CREATE TASK IF NOT EXISTS core.sync_task
-    SCHEDULE = '1 MINUTE'
-    USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'XSMALL'
-  AS CALL api.sync_reservation();
-  ALTER TASK core.sync_task RESUME;
-
-  app := CURRENT_DATABASE();
-  spec := '
+CREATE OR REPLACE AGENT agent.reservation_agent
+  COMMENT = 'Reservation lookup over app-owned hybrid table'
+FROM SPECIFICATION $$
 models:
   orchestration: auto
 instructions:
@@ -148,15 +140,30 @@ tools:
 tool_resources:
   lookup_by_phone:
     type: procedure
-    identifier: ' || app || '.API.LOOKUP_BY_PHONE_JSON
-    execution_environment: {type: warehouse, warehouse: ' || wh || '}
-';
-  EXECUTE IMMEDIATE 'CREATE OR REPLACE AGENT agent.reservation_agent FROM SPECIFICATION ' || CHR(36) || CHR(36) || spec || CHR(36) || CHR(36);
-  EXECUTE IMMEDIATE 'GRANT USAGE ON AGENT agent.reservation_agent TO APPLICATION ROLE app_user';
-  RETURN 'initial: ' || r || ' / task resumed / agent created';
+    identifier: api.lookup_by_phone_json
+    execution_environment: {type: warehouse, warehouse: HT_APP_WH}
+$$;
+GRANT USAGE ON AGENT agent.reservation_agent TO APPLICATION ROLE app_user;
+
+-- init: initial load + resume sync task (needs EXECUTE TASK / EXECUTE MANAGED TASK)
+CREATE OR REPLACE PROCEDURE api.init()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS OWNER
+AS
+$$
+DECLARE r VARCHAR;
+BEGIN
+  CALL api.sync_reservation() INTO :r;
+  CREATE TASK IF NOT EXISTS core.sync_task
+    SCHEDULE = '1 MINUTE'
+    USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'XSMALL'
+  AS CALL api.sync_reservation();
+  ALTER TASK core.sync_task RESUME;
+  RETURN 'initial: ' || r || ' / task resumed';
 END;
 $$;
-GRANT USAGE ON PROCEDURE api.init(VARCHAR) TO APPLICATION ROLE app_user;
+GRANT USAGE ON PROCEDURE api.init() TO APPLICATION ROLE app_user;
 
 -- Streamlit UI
 CREATE OR REPLACE STREAMLIT api.demo_ui
